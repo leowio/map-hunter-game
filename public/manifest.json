@@ -1,0 +1,12 @@
+{
+  "name": "Map Hunter",
+  "icons": [
+    {
+      "src": "assets/512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "orientation": "Natural",
+  "display": "standalone"
+}
