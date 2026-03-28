@@ -9,6 +9,7 @@ let socket = io();
 let mySocketId = null;
 let otherPlayers = {};
 let playerPoints = {};
+let gameArea = null;
 
 // map tile options — Gaode vector, NO labels (scl=2), GCJ-02 coords
 let mappa_options = {
@@ -30,7 +31,12 @@ socket.on("connect", () => {
 socket.on("welcome", (data) => {
   mySocketId = data.id;
   otherPlayers = data.players || {};
+  if (data.gameArea) gameArea = data.gameArea;
   syncPlayerPoints();
+});
+
+socket.on("gameArea", (area) => {
+  gameArea = area;
 });
 
 socket.on("players", (players) => {
@@ -68,6 +74,7 @@ function draw() {
   }
 
   if (mapInit) {
+    drawGameArea();
     me.update();
     me.display();
     for (let id in playerPoints) {
@@ -129,6 +136,30 @@ function metersToPixel(meters, lat) {
   let z = myMap.zoom();
   const mpp = 156543.03392 * Math.cos((lat * Math.PI) / 180) / Math.pow(2, z);
   return meters / mpp;
+}
+
+function drawGameArea() {
+  if (!gameArea) return;
+
+  let nw = myMap.latLngToPixel(gameArea.north, gameArea.west);
+  let se = myMap.latLngToPixel(gameArea.south, gameArea.east);
+
+  let x = nw.x;
+  let y = nw.y;
+  let w = se.x - nw.x;
+  let h = se.y - nw.y;
+
+  noFill();
+  stroke(255, 200, 0);
+  strokeWeight(3);
+  rect(x, y, w, h);
+
+  fill(0, 0, 0, 80);
+  noStroke();
+  rect(0, 0, width, y);
+  rect(0, y + h, width, height - (y + h));
+  rect(0, y, x, h);
+  rect(x + w, y, width - (x + w), h);
 }
 
 class PlayerPoint {

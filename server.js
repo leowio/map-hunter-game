@@ -18,6 +18,7 @@ const io = new Server(HTTPSserver);
 
 let currentlyConnected = [];
 let players = {}; // all player state: location, name, color
+let gameArea = null;
 
 io.on("connection", (socket) => {
   console.log("player connected", socket.id);
@@ -35,7 +36,7 @@ io.on("connection", (socket) => {
   };
 
   // send current state to the new player
-  socket.emit("welcome", { id: socket.id, players: players });
+  socket.emit("welcome", { id: socket.id, players: players, gameArea: gameArea });
 
   // notify everyone about the new player
   io.emit("players", players);
@@ -43,6 +44,23 @@ io.on("connection", (socket) => {
   socket.on("updateLocation", (data) => {
     if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") {
       return;
+    }
+
+    if (!gameArea) {
+      const lat = data.latitude;
+      const lng = data.longitude;
+      const latOffset = 250 / 111320;
+      const lngOffset = 250 / (111320 * Math.cos(lat * Math.PI / 180));
+
+      gameArea = {
+        center: { latitude: lat, longitude: lng },
+        north: lat + latOffset,
+        south: lat - latOffset,
+        east: lng + lngOffset,
+        west: lng - lngOffset,
+      };
+      console.log("Game area set:", gameArea);
+      io.emit("gameArea", gameArea);
     }
 
     if (players[socket.id]) {
