@@ -10,6 +10,9 @@ let mySocketId = null;
 let otherPlayers = {};
 let playerPoints = {};
 let gameArea = null;
+let isReady = false;
+let readyPlayers = {};
+let gameStarted = false;
 
 // map tile options — Gaode vector, NO labels (scl=2), GCJ-02 coords
 let mappa_options = {
@@ -32,11 +35,27 @@ socket.on("welcome", (data) => {
   mySocketId = data.id;
   otherPlayers = data.players || {};
   if (data.gameArea) gameArea = data.gameArea;
+  if (data.readyPlayers) readyPlayers = data.readyPlayers;
+  if (data.gameStarted) {
+    gameStarted = true;
+    hideReadyButton();
+  }
   syncPlayerPoints();
 });
 
 socket.on("gameArea", (area) => {
   gameArea = area;
+});
+
+socket.on("readyPlayers", (rp) => {
+  readyPlayers = rp || {};
+  updateReadyCount();
+});
+
+socket.on("gameStart", () => {
+  gameStarted = true;
+  hideReadyButton();
+  console.log("Game started!");
 });
 
 socket.on("players", (players) => {
@@ -237,4 +256,29 @@ function syncPlayerPoints() {
   }
 
   playerPoints = nextPoints;
+}
+
+function toggleReady() {
+  if (gameStarted) return;
+  isReady = true;
+  socket.emit("ready");
+  let btn = document.getElementById("readyButton");
+  btn.textContent = "Waiting...";
+  btn.style.background = "#888";
+  btn.disabled = true;
+}
+
+function updateReadyCount() {
+  let total = Object.keys(otherPlayers).length;
+  let ready = Object.keys(readyPlayers).length;
+  let btn = document.getElementById("readyButton");
+  if (!btn || gameStarted) return;
+  if (isReady) {
+    btn.textContent = "Waiting... (" + ready + "/" + total + ")";
+  }
+}
+
+function hideReadyButton() {
+  let btn = document.getElementById("readyButton");
+  if (btn) btn.style.display = "none";
 }

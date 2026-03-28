@@ -19,6 +19,8 @@ const io = new Server(HTTPSserver);
 let currentlyConnected = [];
 let players = {}; // all player state: location, name, color
 let gameArea = null;
+let readyPlayers = {};
+let gameStarted = false;
 
 io.on("connection", (socket) => {
   console.log("player connected", socket.id);
@@ -36,7 +38,7 @@ io.on("connection", (socket) => {
   };
 
   // send current state to the new player
-  socket.emit("welcome", { id: socket.id, players: players, gameArea: gameArea });
+  socket.emit("welcome", { id: socket.id, players: players, gameArea: gameArea, readyPlayers: readyPlayers, gameStarted: gameStarted });
 
   // notify everyone about the new player
   io.emit("players", players);
@@ -72,6 +74,20 @@ io.on("connection", (socket) => {
     io.emit("players", players);
   });
 
+  socket.on("ready", () => {
+    if (gameStarted) return;
+    readyPlayers[socket.id] = true;
+    io.emit("readyPlayers", readyPlayers);
+
+    let allReady = currentlyConnected.length > 0 &&
+      currentlyConnected.every((id) => readyPlayers[id]);
+    if (allReady) {
+      gameStarted = true;
+      io.emit("gameStart");
+      console.log("Game started!");
+    }
+  });
+
   socket.on("setName", (name) => {
     if (players[socket.id] && typeof name === "string") {
       players[socket.id].name = name.substring(0, 20);
@@ -88,7 +104,9 @@ io.on("connection", (socket) => {
     }
 
     delete players[socket.id];
+    delete readyPlayers[socket.id];
     io.emit("players", players);
+    io.emit("readyPlayers", readyPlayers);
   });
 });
 
