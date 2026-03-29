@@ -17,13 +17,16 @@ let myRole = null;
 let hunterId = null;
 let hunterCircles = [];
 let scores = {};
+let amInCircle = false;
+let nextPlaceAt = 0;
 
 // map tile options — Gaode vector, NO labels (scl=2), GCJ-02 coords
 let mappa_options = {
   lat: 0,
   lng: 0,
   zoom: 16,
-  style: "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=2&style=7",
+  style:
+    "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=2&style=7",
   // alternatives (all Gaode/AutoNavi, GCJ-02, no API key):
   // blocks + roads, no text:  "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7&ltype=3"
   // land blocks only:         "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7&ltype=1"
@@ -42,10 +45,11 @@ socket.on("welcome", (data) => {
   if (data.readyPlayers) readyPlayers = data.readyPlayers;
   if (data.hunterCircles) hunterCircles = data.hunterCircles;
   if (data.scores) scores = data.scores;
+  if (data.nextPlaceAt) nextPlaceAt = data.nextPlaceAt;
   if (data.gameStarted) {
     gameStarted = true;
     hunterId = data.hunterId;
-    myRole = (mySocketId === hunterId) ? "hunter" : "survivor";
+    myRole = mySocketId === hunterId ? "hunter" : "survivor";
     hideReadyButton();
     showRoleUI();
   }
@@ -64,7 +68,7 @@ socket.on("readyPlayers", (rp) => {
 socket.on("gameStart", (data) => {
   gameStarted = true;
   hunterId = data.hunterId;
-  myRole = (mySocketId === hunterId) ? "hunter" : "survivor";
+  myRole = mySocketId === hunterId ? "hunter" : "survivor";
   hideReadyButton();
   showRoleUI();
 });
@@ -75,6 +79,18 @@ socket.on("hunterCircles", (circles) => {
 
 socket.on("scores", (s) => {
   scores = s || {};
+});
+
+socket.on("inCircle", (val) => {
+  amInCircle = val;
+});
+
+socket.on("cooldownStart", (data) => {
+  nextPlaceAt = data.nextPlaceAt;
+});
+
+socket.on("cooldownReject", (data) => {
+  nextPlaceAt = data.nextPlaceAt;
 });
 
 socket.on("players", (players) => {
@@ -176,7 +192,7 @@ function updateMapContent() {
 
 function metersToPixel(meters, lat) {
   let z = myMap.zoom();
-  const mpp = 156543.03392 * Math.cos((lat * Math.PI) / 180) / Math.pow(2, z);
+  const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, z);
   return meters / mpp;
 }
 
@@ -205,14 +221,27 @@ function drawGameArea() {
 }
 
 function drawHunterCircles() {
-  if (!gameStarted || hunterCircles.length === 0) return;
-  for (let circ of hunterCircles) {
-    let pos = myMap.latLngToPixel(circ.latitude, circ.longitude);
-    let diameterPx = 2 * metersToPixel(circ.radius, circ.latitude);
-    fill(200, 0, 0, 40);
-    stroke(200, 0, 0, 150);
-    strokeWeight(2);
-    circle(pos.x, pos.y, diameterPx);
+  if (!gameStarted) return;
+  if (myRole === "hunter") {
+    for (let circ of hunterCircles) {
+      let pos = myMap.latLngToPixel(circ.latitude, circ.longitude);
+      let diameterPx = 2 * metersToPixel(circ.radius, circ.latitude);
+      fill(200, 0, 0, 40);
+      stroke(200, 0, 0, 150);
+      strokeWeight(2);
+      circle(pos.x, pos.y, diameterPx);
+    }
+  }
+  if (myRole === "survivor" && amInCircle) {
+    fill(200, 0, 0, 30);
+    noStroke();
+    rect(0, 0, width, height);
+    fill(255, 60, 60);
+    noStroke();
+    textSize(20);
+    textAlign(CENTER);
+    text("You are in a hunter circle!", width / 2, height - 50);
+    textAlign(LEFT);
   }
 }
 
@@ -323,7 +352,8 @@ function showRoleUI() {
   if (!banner) {
     banner = document.createElement("div");
     banner.id = "roleBanner";
-    banner.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1000;padding:10px 24px;border-radius:10px;font-family:sans-serif;font-size:16px;font-weight:bold;color:white;";
+    banner.style.cssText =
+      "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1000;padding:10px 24px;border-radius:10px;font-family:sans-serif;font-size:16px;font-weight:bold;color:white;";
     document.body.appendChild(banner);
   }
   if (myRole === "hunter") {
@@ -339,11 +369,17 @@ function drawRoleHUD() {
   push();
   let myScore = Math.floor(scores[mySocketId] || 0);
   if (myRole === "hunter") {
+    let cooldownLeft = Math.max(0, Math.ceil((nextPlaceAt - Date.now()) / 1000));
+    let cooldownText = cooldownLeft > 0 ? "Cooldown: " + cooldownLeft + "s" : "Tap to place circle";
     fill(200, 0, 0);
     noStroke();
     textSize(14);
     textAlign(LEFT);
-    text("Score: " + myScore + "  |  Circles: " + hunterCircles.length, 20, height - 20);
+    text(
+      "Score: " + myScore + "  |  Circles: " + hunterCircles.length + "  |  " + cooldownText,
+      20,
+      height - 20,
+    );
   } else {
     fill(0, 100, 200);
     noStroke();

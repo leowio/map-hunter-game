@@ -25,6 +25,7 @@ let hunterId = null;
 let hunterCircles = [];
 let scores = {};
 let scoreInterval = null;
+let lastCirclePlacedAt = 0;
 
 let scoringConfig = {
   hunterPointsPerPlayerInCircle: 10,
@@ -34,15 +35,16 @@ let scoringConfig = {
   hunterCircleRadius: 30,
   maxHunterCircles: 3,
   scoreTickMs: 1000,
+  hunterCircleCooldownMs: 60000,
 };
 
 function distanceMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -50,28 +52,38 @@ function calcSurvivorProximityPoints(dist) {
   const cfg = scoringConfig;
   if (dist >= cfg.survivorProximityMaxDistance) return 0;
   const ratio = 1 - dist / cfg.survivorProximityMaxDistance;
-  if (cfg.survivorProximityFormula === "quadratic") return cfg.survivorProximityMaxPoints * ratio * ratio;
-  if (cfg.survivorProximityFormula === "exponential") return cfg.survivorProximityMaxPoints * (Math.exp(ratio * 3) - 1) / (Math.exp(3) - 1);
+  if (cfg.survivorProximityFormula === "quadratic")
+    return cfg.survivorProximityMaxPoints * ratio * ratio;
+  if (cfg.survivorProximityFormula === "exponential")
+    return (cfg.survivorProximityMaxPoints * (Math.exp(ratio * 3) - 1)) / (Math.exp(3) - 1);
   return cfg.survivorProximityMaxPoints * ratio;
 }
 
 function scoreTick() {
   if (!gameStarted) return;
 
-  let survivors = Object.values(players).filter(p => p.role === "survivor");
+  let survivors = Object.values(players).filter((p) => p.role === "survivor");
+  let inCircleMap = {};
 
-  for (let circ of hunterCircles) {
-    for (let s of survivors) {
+  for (let s of survivors) {
+    inCircleMap[s.id] = false;
+    for (let circ of hunterCircles) {
       let d = distanceMeters(s.latitude, s.longitude, circ.latitude, circ.longitude);
       if (d <= circ.radius) {
         scores[hunterId] = (scores[hunterId] || 0) + scoringConfig.hunterPointsPerPlayerInCircle;
+        inCircleMap[s.id] = true;
       }
     }
   }
 
   for (let i = 0; i < survivors.length; i++) {
     for (let j = i + 1; j < survivors.length; j++) {
-      let d = distanceMeters(survivors[i].latitude, survivors[i].longitude, survivors[j].latitude, survivors[j].longitude);
+      let d = distanceMeters(
+        survivors[i].latitude,
+        survivors[i].longitude,
+        survivors[j].latitude,
+        survivors[j].longitude,
+      );
       let pts = calcSurvivorProximityPoints(d);
       if (pts > 0) {
         scores[survivors[i].id] = (scores[survivors[i].id] || 0) + pts;
@@ -81,6 +93,9 @@ function scoreTick() {
   }
 
   io.emit("scores", scores);
+  for (let s of survivors) {
+    io.to(s.id).emit("inCircle", inCircleMap[s.id]);
+  }
 }
 
 io.on("connection", (socket) => {
@@ -99,7 +114,20 @@ io.on("connection", (socket) => {
   };
 
   // send current state to the new player
-  socket.emit("welcome", { id: socket.id, players: players, gameArea: gameArea, readyPlayers: readyPlayers, gameStarted: gameStarted, hunterId: hunterId, hunterCircles: hunterCircles, scores: scores });
+  let welcomeData = {
+    id: socket.id,
+    players: players,
+    gameArea: gameArea,
+    readyPlayers: readyPlayers,
+    gameStarted: gameStarted,
+    hunterId: hunterId,
+    scores: scores,
+  };
+  if (socket.id === hunterId) {
+    welcomeData.hunterCircles = hunterCircles;
+    welcomeData.nextPlaceAt = lastCirclePlacedAt + scoringConfig.hunterCircleCooldownMs;
+  }
+  socket.emit("welcome", welcomeData);
 
   // notify everyone about the new player
   io.emit("players", players);
@@ -113,7 +141,7 @@ io.on("connection", (socket) => {
       const lat = data.latitude;
       const lng = data.longitude;
       const latOffset = 250 / 111320;
-      const lngOffset = 250 / (111320 * Math.cos(lat * Math.PI / 180));
+      const lngOffset = 250 / (111320 * Math.cos((lat * Math.PI) / 180));
 
       gameArea = {
         center: { latitude: lat, longitude: lng },
@@ -140,8 +168,8 @@ io.on("connection", (socket) => {
     readyPlayers[socket.id] = true;
     io.emit("readyPlayers", readyPlayers);
 
-    let allReady = currentlyConnected.length > 0 &&
-      currentlyConnected.every((id) => readyPlayers[id]);
+    let allReady =
+      currentlyConnected.length > 0 && currentlyConnected.every((id) => readyPlayers[id]);
     if (allReady) {
       gameStarted = true;
       hunterId = currentlyConnected[Math.floor(Math.random() * currentlyConnected.length)];
@@ -160,6 +188,13 @@ io.on("connection", (socket) => {
   socket.on("placeCircle", (data) => {
     if (socket.id !== hunterId || !gameStarted) return;
     if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") return;
+    let now = Date.now();
+    if (now - lastCirclePlacedAt < scoringConfig.hunterCircleCooldownMs) {
+      socket.emit("cooldownReject", {
+        nextPlaceAt: lastCirclePlacedAt + scoringConfig.hunterCircleCooldownMs,
+      });
+      return;
+    }
     if (hunterCircles.length >= scoringConfig.maxHunterCircles) {
       hunterCircles.shift();
     }
@@ -168,7 +203,11 @@ io.on("connection", (socket) => {
       longitude: data.longitude,
       radius: scoringConfig.hunterCircleRadius,
     });
-    io.emit("hunterCircles", hunterCircles);
+    lastCirclePlacedAt = now;
+    io.to(hunterId).emit("hunterCircles", hunterCircles);
+    io.to(hunterId).emit("cooldownStart", {
+      nextPlaceAt: lastCirclePlacedAt + scoringConfig.hunterCircleCooldownMs,
+    });
   });
 
   socket.on("setName", (name) => {
