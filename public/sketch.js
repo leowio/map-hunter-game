@@ -13,6 +13,10 @@ let gameArea = null;
 let isReady = false;
 let readyPlayers = {};
 let gameStarted = false;
+let myRole = null;
+let hunterId = null;
+let hunterCircles = [];
+let scores = {};
 
 // map tile options — Gaode vector, NO labels (scl=2), GCJ-02 coords
 let mappa_options = {
@@ -36,9 +40,14 @@ socket.on("welcome", (data) => {
   otherPlayers = data.players || {};
   if (data.gameArea) gameArea = data.gameArea;
   if (data.readyPlayers) readyPlayers = data.readyPlayers;
+  if (data.hunterCircles) hunterCircles = data.hunterCircles;
+  if (data.scores) scores = data.scores;
   if (data.gameStarted) {
     gameStarted = true;
+    hunterId = data.hunterId;
+    myRole = (mySocketId === hunterId) ? "hunter" : "survivor";
     hideReadyButton();
+    showRoleUI();
   }
   syncPlayerPoints();
 });
@@ -52,10 +61,20 @@ socket.on("readyPlayers", (rp) => {
   updateReadyCount();
 });
 
-socket.on("gameStart", () => {
+socket.on("gameStart", (data) => {
   gameStarted = true;
+  hunterId = data.hunterId;
+  myRole = (mySocketId === hunterId) ? "hunter" : "survivor";
   hideReadyButton();
-  console.log("Game started!");
+  showRoleUI();
+});
+
+socket.on("hunterCircles", (circles) => {
+  hunterCircles = circles || [];
+});
+
+socket.on("scores", (s) => {
+  scores = s || {};
 });
 
 socket.on("players", (players) => {
@@ -94,19 +113,23 @@ function draw() {
 
   if (mapInit) {
     drawGameArea();
+    drawHunterCircles();
     me.update();
     me.display();
     for (let id in playerPoints) {
+      if (gameStarted && myRole === "survivor" && id === hunterId) continue;
       playerPoints[id].update();
       playerPoints[id].display();
     }
+    if (gameStarted) drawRoleHUD();
   }
 }
 
 function touchStarted() {
-  if (mapInit) {
-    let pos = myMap.pixelToLatLng(touches[0].x, touches[0].y);
-    console.log("TOUCHED", pos);
+  if (!mapInit) return;
+  let pos = myMap.pixelToLatLng(touches[0].x, touches[0].y);
+  if (gameStarted && myRole === "hunter") {
+    socket.emit("placeCircle", { latitude: pos.lat, longitude: pos.lng });
   }
 }
 
@@ -179,6 +202,18 @@ function drawGameArea() {
   rect(0, y + h, width, height - (y + h));
   rect(0, y, x, h);
   rect(x + w, y, width - (x + w), h);
+}
+
+function drawHunterCircles() {
+  if (!gameStarted || hunterCircles.length === 0) return;
+  for (let circ of hunterCircles) {
+    let pos = myMap.latLngToPixel(circ.latitude, circ.longitude);
+    let diameterPx = 2 * metersToPixel(circ.radius, circ.latitude);
+    fill(200, 0, 0, 40);
+    stroke(200, 0, 0, 150);
+    strokeWeight(2);
+    circle(pos.x, pos.y, diameterPx);
+  }
 }
 
 class PlayerPoint {
@@ -281,4 +316,40 @@ function updateReadyCount() {
 function hideReadyButton() {
   let btn = document.getElementById("readyButton");
   if (btn) btn.style.display = "none";
+}
+
+function showRoleUI() {
+  let banner = document.getElementById("roleBanner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "roleBanner";
+    banner.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1000;padding:10px 24px;border-radius:10px;font-family:sans-serif;font-size:16px;font-weight:bold;color:white;";
+    document.body.appendChild(banner);
+  }
+  if (myRole === "hunter") {
+    banner.textContent = "You are the Hunter";
+    banner.style.background = "rgba(200,0,0,0.8)";
+  } else {
+    banner.textContent = "You are a Survivor";
+    banner.style.background = "rgba(0,100,200,0.8)";
+  }
+}
+
+function drawRoleHUD() {
+  push();
+  let myScore = Math.floor(scores[mySocketId] || 0);
+  if (myRole === "hunter") {
+    fill(200, 0, 0);
+    noStroke();
+    textSize(14);
+    textAlign(LEFT);
+    text("Score: " + myScore + "  |  Circles: " + hunterCircles.length, 20, height - 20);
+  } else {
+    fill(0, 100, 200);
+    noStroke();
+    textSize(14);
+    textAlign(LEFT);
+    text("Score: " + myScore + "  |  Stay close to other survivors!", 20, height - 20);
+  }
+  pop();
 }
