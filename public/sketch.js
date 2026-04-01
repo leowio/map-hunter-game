@@ -5,7 +5,13 @@ let currentLongitude = 0;
 let currentLatitude = 0;
 let mapInit = false;
 let me;
-let socket = io();
+let socket;
+if(location.hostname.toLowerCase().startsWith('browsercircus') || location.hostname.toLowerCase().startsWith('www')){
+  socket = io({path: "/riley/port-4300/socket.io"}); 
+}else{
+  socket = io(); 
+}
+
 let mySocketId = null;
 let otherPlayers = {};
 let playerPoints = {};
@@ -20,18 +26,11 @@ let scores = {};
 let amInCircle = false;
 let nextPlaceAt = 0;
 
-// map tile options — Gaode vector, NO labels (scl=2), GCJ-02 coords
 let mappa_options = {
   lat: 0,
   lng: 0,
   zoom: 16,
-  style:
-    "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=2&style=7",
-  // alternatives (all Gaode/AutoNavi, GCJ-02, no API key):
-  // blocks + roads, no text:  "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7&ltype=3"
-  // land blocks only:         "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=1&style=7&ltype=1"
-  // satellite, no labels:     "https://webst01.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}"
-  // original with labels:     "https://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}"
+  style: "https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scl=2&style=7"
 };
 
 socket.on("connect", () => {
@@ -51,6 +50,7 @@ socket.on("welcome", (data) => {
     hunterId = data.hunterId;
     myRole = mySocketId === hunterId ? "hunter" : "survivor";
     hideReadyButton();
+    hideUIOverlay(); // 隐藏输入框容器
     showRoleUI();
   }
   syncPlayerPoints();
@@ -70,6 +70,7 @@ socket.on("gameStart", (data) => {
   hunterId = data.hunterId;
   myRole = mySocketId === hunterId ? "hunter" : "survivor";
   hideReadyButton();
+  hideUIOverlay(); // 隐藏输入框容器
   showRoleUI();
 });
 
@@ -91,6 +92,11 @@ socket.on("cooldownStart", (data) => {
 
 socket.on("cooldownReject", (data) => {
   nextPlaceAt = data.nextPlaceAt;
+});
+
+// 新增逻辑：处理游戏重置
+socket.on("gameReset", () => {
+  location.reload();
 });
 
 socket.on("players", (players) => {
@@ -141,13 +147,15 @@ function draw() {
   }
 }
 
-function touchStarted() {
-  if (!mapInit) return;
-  let pos = myMap.pixelToLatLng(touches[0].x, touches[0].y);
-  if (gameStarted && myRole === "hunter") {
-    socket.emit("placeCircle", { latitude: pos.lat, longitude: pos.lng });
-  }
-}
+function mousePressed() {
+  if (!mapInit || !gameStarted || myRole !== "hunter") return;
+  let pos = myMap.pixelToLatLng(mouseX, mouseY);
+  socket.emit("placeCircle", { 
+    latitude: pos.lat, 
+    longitude: pos.lng 
+  });
+  return false; 
+}//将TOUCHED改成了MOUSEPRESSED
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
@@ -155,7 +163,6 @@ function windowResized() {
 
 function handleNewPosition(pos) {
   console.log("NEW LOC", pos);
-  console.log("accuracy:", pos.coords.accuracy, "meters");
   me.accuracy = pos.coords.accuracy;
 
   let lonlat = fixForChineseMap(pos);
@@ -198,20 +205,16 @@ function metersToPixel(meters, lat) {
 
 function drawGameArea() {
   if (!gameArea) return;
-
   let nw = myMap.latLngToPixel(gameArea.north, gameArea.west);
   let se = myMap.latLngToPixel(gameArea.south, gameArea.east);
-
   let x = nw.x;
   let y = nw.y;
   let w = se.x - nw.x;
   let h = se.y - nw.y;
-
   noFill();
   stroke(255, 200, 0);
   strokeWeight(3);
   rect(x, y, w, h);
-
   fill(0, 0, 0, 80);
   noStroke();
   rect(0, 0, width, y);
@@ -232,25 +235,31 @@ function drawHunterCircles() {
       circle(pos.x, pos.y, diameterPx);
     }
   }
+  
+  // 增加PRAY在圈内的红色闪烁预警
   if (myRole === "survivor" && amInCircle) {
-    fill(200, 0, 0, 30);
+    let flashAlpha = map(sin(frameCount * 0.15), -1, 1, 40, 160); 
+    fill(255, 0, 0, flashAlpha);
     noStroke();
     rect(0, 0, width, height);
-    fill(255, 60, 60);
+    
+    fill(255);
     noStroke();
-    textSize(20);
+    textSize(24);
     textAlign(CENTER);
-    text("You are in a hunter circle!", width / 2, height - 50);
+    text("WARNING: IN HUNTER CIRCLE!", width / 2, height / 2);
+    
+    fill(255, 200, 200);
+    textSize(16);
+    text("Your score gain is PAUSED", width / 2, height / 2 + 40);
     textAlign(LEFT);
   }
 }
 
 class PlayerPoint {
   constructor(col, isMe) {
-    this.x = 0;
-    this.y = 0;
-    this.goalX = 0;
-    this.goalY = 0;
+    this.x = 0; this.y = 0;
+    this.goalX = 0; this.goalY = 0;
     this.size = 14;
     this.col = col;
     this.isMe = isMe || false;
@@ -258,30 +267,22 @@ class PlayerPoint {
     this.playerName = "";
     this.playerColor = null;
   }
-
   update() {
     this.x = lerp(this.x, this.goalX, 0.2);
     this.y = lerp(this.y, this.goalY, 0.2);
   }
-
   display() {
     push();
     translate(this.x, this.y);
-
-    // accuracy circle
     noFill();
     stroke("red");
     let diameter = 2 * metersToPixel(this.accuracy, currentLatitude);
     circle(0, 0, diameter);
-    line(0, 0, diameter / 2, 0);
     fill("red");
     noStroke();
-    if (mapInit) {
-      textSize(map(myMap.zoom(), 9, 18, 0, 12));
-    }
-    text("accuracy:" + this.accuracy, diameter / 2 + 1, 0);
+    if (mapInit) { textSize(map(myMap.zoom(), 9, 18, 0, 12)); }
+    text("acc:" + Math.floor(this.accuracy) + "m", diameter / 2 + 1, 0);
 
-    // player dot
     let displayCol = this.playerColor ? color(this.playerColor) : this.col;
     fill(displayCol);
     stroke(this.isMe ? "pink" : "white");
@@ -289,47 +290,53 @@ class PlayerPoint {
     let dia = this.size + sin(frameCount * 0.1);
     circle(0, 0, dia);
 
-    // player name label
-    if (this.playerName && mapInit) {
+    if (mapInit) {
       noStroke();
       fill(0);
       textAlign(CENTER);
       textSize(map(myMap.zoom(), 9, 18, 0, 11));
-      text(this.isMe ? "You" : this.playerName, 0, -dia / 2 - 6);
+      let myScore = Math.floor(scores[this.isMe ? mySocketId : this.playerName] || 0);
+      let label = (this.isMe ? "You" : this.playerName) + " (" + (scores[this.isMe ? mySocketId : this.getIDfromName(this.playerName)] || 0) + ")";
+      text(label, 0, -dia / 2 - 6);
       textAlign(LEFT);
     }
-
     pop();
+  }
+  // 根据名字找分（
+  getIDfromName(name){
+      for(let id in otherPlayers){ if(otherPlayers[id].name === name) return id; }
+      return name;
   }
 }
 
 function syncPlayerPoints() {
   let nextPoints = {};
-
   for (let id in otherPlayers) {
     if (id === mySocketId) continue;
-
     let existing = playerPoints[id];
-    if (existing) {
-      nextPoints[id] = existing;
-      continue;
-    }
-
+    if (existing) { nextPoints[id] = existing; continue; }
     let pt = new PlayerPoint(color(170, 190, 240), false);
     nextPoints[id] = pt;
   }
-
   playerPoints = nextPoints;
 }
 
+//增加ID输入
 function toggleReady() {
   if (gameStarted) return;
+  
+  let inputField = document.getElementById("userNameInput");
+  let chosenName = inputField ? inputField.value.trim() : "";
+  socket.emit("setName", chosenName || "Player_" + mySocketId.substring(0,4));
   isReady = true;
   socket.emit("ready");
+  
   let btn = document.getElementById("readyButton");
-  btn.textContent = "Waiting...";
-  btn.style.background = "#888";
-  btn.disabled = true;
+  if(btn) {
+    btn.textContent = "Waiting...";
+    btn.style.background = "#888";
+    btn.disabled = true;
+  }
 }
 
 function updateReadyCount() {
@@ -347,13 +354,18 @@ function hideReadyButton() {
   if (btn) btn.style.display = "none";
 }
 
+// 隐藏输入UI
+function hideUIOverlay() {
+  let ui = document.getElementById("ui-overlay");
+  if (ui) ui.style.display = "none";
+}
+
 function showRoleUI() {
   let banner = document.getElementById("roleBanner");
   if (!banner) {
     banner = document.createElement("div");
     banner.id = "roleBanner";
-    banner.style.cssText =
-      "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1000;padding:10px 24px;border-radius:10px;font-family:sans-serif;font-size:16px;font-weight:bold;color:white;";
+    banner.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:1000;padding:10px 24px;border-radius:10px;font-family:sans-serif;font-size:16px;font-weight:bold;color:white;";
     document.body.appendChild(banner);
   }
   if (myRole === "hunter") {
@@ -371,20 +383,10 @@ function drawRoleHUD() {
   if (myRole === "hunter") {
     let cooldownLeft = Math.max(0, Math.ceil((nextPlaceAt - Date.now()) / 1000));
     let cooldownText = cooldownLeft > 0 ? "Cooldown: " + cooldownLeft + "s" : "Tap to place circle";
-    fill(200, 0, 0);
-    noStroke();
-    textSize(14);
-    textAlign(LEFT);
-    text(
-      "Score: " + myScore + "  |  Circles: " + hunterCircles.length + "  |  " + cooldownText,
-      20,
-      height - 20,
-    );
+    fill(200, 0, 0); noStroke(); textSize(14); textAlign(LEFT);
+    text("Score: " + myScore + "  |  Circles: " + hunterCircles.length + "  |  " + cooldownText, 20, height - 20);
   } else {
-    fill(0, 100, 200);
-    noStroke();
-    textSize(14);
-    textAlign(LEFT);
+    fill(0, 100, 200); noStroke(); textSize(14); textAlign(LEFT);
     text("Score: " + myScore + "  |  Stay close to other survivors!", 20, height - 20);
   }
   pop();
