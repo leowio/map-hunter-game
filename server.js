@@ -26,6 +26,26 @@ let hunterCircles = [];
 let scores = {};
 let scoreInterval = null;
 let lastCirclePlacedAt = 0;
+let hunterUpdateInterval = null;
+let lastHunterSnapshot = {};
+
+function broadcastPlayers() {
+  if (!gameStarted || !hunterId) {
+    io.emit("players", players);
+    return;
+  }
+  for (let id of currentlyConnected) {
+    if (id !== hunterId) {
+      io.to(id).emit("players", players);
+    }
+  }
+}
+
+function sendHunterSnapshot() {
+  if (!gameStarted || !hunterId) return;
+  lastHunterSnapshot = JSON.parse(JSON.stringify(players));
+  io.to(hunterId).emit("players", lastHunterSnapshot);
+}
 
 let scoringConfig = {
   hunterPointsPerPlayerInCircle: 10,
@@ -36,7 +56,8 @@ let scoringConfig = {
   maxHunterCircles: 3,
   scoreTickMs: 1000,
   hunterCircleCooldownMs: 1000,
-  hunterCircleMaxRange: 100,
+  hunterCircleMaxRange: 30,
+  hunterPlayerUpdateIntervalMs: 20000,
 };
 
 function distanceMeters(lat1, lng1, lat2, lng2) {
@@ -139,7 +160,7 @@ io.on("connection", (socket) => {
   }
   socket.emit("welcome", welcomeData);
 
-  io.emit("players", players);
+  broadcastPlayers();
 
   socket.on("updateLocation", (data) => {
     if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") {
@@ -169,7 +190,7 @@ io.on("connection", (socket) => {
       players[socket.id].accuracy = typeof data.accuracy === "number" ? data.accuracy : 0;
     }
 
-    io.emit("players", players);
+    broadcastPlayers();
   });
 
   socket.on("ready", () => {
@@ -189,10 +210,16 @@ io.on("connection", (socket) => {
       }
 
       io.emit("gameStart", { hunterId: hunterId });
-      io.emit("players", players);
+      broadcastPlayers();
 
       if (scoreInterval) clearInterval(scoreInterval);
       scoreInterval = setInterval(scoreTick, scoringConfig.scoreTickMs);
+      if (hunterUpdateInterval) clearInterval(hunterUpdateInterval);
+      hunterUpdateInterval = setInterval(
+        sendHunterSnapshot,
+        scoringConfig.hunterPlayerUpdateIntervalMs,
+      );
+      sendHunterSnapshot();
       console.log("Game started! Hunter:", hunterId);
     }
   });
@@ -231,7 +258,7 @@ io.on("connection", (socket) => {
   socket.on("setName", (name) => {
     if (players[socket.id] && typeof name === "string") {
       players[socket.id].name = name.substring(0, 20);
-      io.emit("players", players);
+      broadcastPlayers();
     }
   });
 
@@ -245,6 +272,7 @@ io.on("connection", (socket) => {
       hunterId = null;
       hunterCircles = [];
       if (scoreInterval) clearInterval(scoreInterval);
+      if (hunterUpdateInterval) clearInterval(hunterUpdateInterval);
       io.emit("gameReset");
     }
 
@@ -255,7 +283,7 @@ io.on("connection", (socket) => {
 
     delete players[socket.id];
     delete readyPlayers[socket.id];
-    io.emit("players", players);
+    broadcastPlayers();
     io.emit("readyPlayers", readyPlayers);
   });
 });
