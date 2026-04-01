@@ -2,11 +2,7 @@ const express = require("express");
 const https = require("https");
 const fs = require("fs");
 const app = express();
-<<<<<<< HEAD
-const portHTTPS = 4300;
-=======
 const portHTTPS = 4210;
->>>>>>> 5cc61c412db0da2d9be8ca01fb13c79cc610f238
 
 app.use(express.static("public"));
 
@@ -76,7 +72,10 @@ function scoreTick() {
       let d = distanceMeters(s.latitude, s.longitude, circ.latitude, circ.longitude);
       if (d <= circ.radius) {
         // Hunter gains points, limited to 100
-        scores[hunterId] = Math.min(10000, (scores[hunterId] || 0) + scoringConfig.hunterPointsPerPlayerInCircle);
+        scores[hunterId] = Math.min(
+          10000,
+          (scores[hunterId] || 0) + scoringConfig.hunterPointsPerPlayerInCircle,
+        );
         inCircleMap[s.id] = true;
         break; // Ensure one survivor only gives points once even if in overlapping circles
       }
@@ -121,7 +120,7 @@ io.on("connection", (socket) => {
     accuracy: 0,
     name: "Player " + socket.id.substring(0, 4),
     color: `hsl(${hue}, 70%, 60%)`,
-    role: "spectator"
+    role: "spectator",
   };
 
   let welcomeData = {
@@ -182,15 +181,15 @@ io.on("connection", (socket) => {
     if (allReady && currentlyConnected.length >= 2) {
       gameStarted = true;
       hunterId = currentlyConnected[Math.floor(Math.random() * currentlyConnected.length)];
-      
+
       for (let id of currentlyConnected) {
-        players[id].role = (id === hunterId) ? "hunter" : "survivor";
+        players[id].role = id === hunterId ? "hunter" : "survivor";
         scores[id] = 0;
       }
 
       io.emit("gameStart", { hunterId: hunterId });
       io.emit("players", players);
-      
+
       if (scoreInterval) clearInterval(scoreInterval);
       scoreInterval = setInterval(scoreTick, scoringConfig.scoreTickMs);
       console.log("Game started! Hunter:", hunterId);
@@ -234,12 +233,12 @@ io.on("connection", (socket) => {
 
     // If hunter disconnects, reset the game
     if (socket.id === hunterId) {
-        console.log("Hunter disconnected. Resetting game.");
-        gameStarted = false;
-        hunterId = null;
-        hunterCircles = [];
-        if (scoreInterval) clearInterval(scoreInterval);
-        io.emit("gameReset");
+      console.log("Hunter disconnected. Resetting game.");
+      gameStarted = false;
+      hunterId = null;
+      hunterCircles = [];
+      if (scoreInterval) clearInterval(scoreInterval);
+      io.emit("gameReset");
     }
 
     let idx = currentlyConnected.indexOf(socket.id);
