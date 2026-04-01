@@ -35,7 +35,8 @@ let scoringConfig = {
   hunterCircleRadius: 30,
   maxHunterCircles: 3,
   scoreTickMs: 1000,
-  hunterCircleCooldownMs: 1000, // Set to 0 for debug as requested
+  hunterCircleCooldownMs: 1000,
+  hunterCircleMaxRange: 100,
 };
 
 function distanceMeters(lat1, lng1, lat2, lng2) {
@@ -199,6 +200,12 @@ io.on("connection", (socket) => {
   socket.on("placeCircle", (data) => {
     if (socket.id !== hunterId || !gameStarted) return;
     if (!data || typeof data.latitude !== "number" || typeof data.longitude !== "number") return;
+    let hunter = players[hunterId];
+    let dist = distanceMeters(hunter.latitude, hunter.longitude, data.latitude, data.longitude);
+    if (dist > scoringConfig.hunterCircleMaxRange) {
+      socket.emit("placeRejected", "Out of range");
+      return;
+    }
     let now = Date.now();
     if (now - lastCirclePlacedAt < scoringConfig.hunterCircleCooldownMs) {
       socket.emit("cooldownReject", {

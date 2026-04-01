@@ -27,6 +27,7 @@ let hunterCircles = [];
 let scores = {};
 let amInCircle = false;
 let nextPlaceAt = 0;
+let hunterCircleMaxRange = 100;
 
 let mappa_options = {
   lat: 0,
@@ -229,6 +230,15 @@ function drawGameArea() {
 function drawHunterCircles() {
   if (!gameStarted) return;
   if (myRole === "hunter") {
+    let myPos = myMap.latLngToPixel(currentLatitude, currentLongitude);
+    let rangeDiameter = 2 * metersToPixel(hunterCircleMaxRange, currentLatitude);
+    fill(255, 255, 255, 15);
+    stroke(255, 255, 255, 180);
+    strokeWeight(3);
+    drawingContext.setLineDash([12, 8]);
+    circle(myPos.x, myPos.y, rangeDiameter);
+    drawingContext.setLineDash([]);
+
     for (let circ of hunterCircles) {
       let pos = myMap.latLngToPixel(circ.latitude, circ.longitude);
       let diameterPx = 2 * metersToPixel(circ.radius, circ.latitude);
