@@ -6,12 +6,23 @@ let currentLatitude = 0;
 let mapInit = false;
 let me;
 let socket;
+<<<<<<< HEAD
 if(location.hostname.toLowerCase().startsWith('browsercircus') || location.hostname.toLowerCase().startsWith('www')){
   socket = io({path: "/riley/port-4300/socket.io"}); 
 }else{
   socket = io(); 
 }
 
+=======
+if (
+  location.hostname.toLowerCase().startsWith("browsercircus") ||
+  location.hostname.toLowerCase().startsWith("www")
+) {
+  socket = io({ path: "/leo/port-4210/socket.io" });
+} else {
+  socket = io();
+}
+>>>>>>> 5cc61c412db0da2d9be8ca01fb13c79cc610f238
 let mySocketId = null;
 let otherPlayers = {};
 let playerPoints = {};
