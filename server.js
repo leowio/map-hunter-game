@@ -56,7 +56,7 @@ let scoringConfig = {
   maxHunterCircles: 3,
   scoreTickMs: 1000,
   hunterCircleCooldownMs: 1000,
-  hunterCircleMaxRange: 30,
+  hunterCircleMaxRange: 70,
   hunterPlayerUpdateIntervalMs: 20000,
 };
 
