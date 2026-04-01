@@ -5,7 +5,15 @@ let currentLongitude = 0;
 let currentLatitude = 0;
 let mapInit = false;
 let me;
-let socket = io();
+let socket;
+if (
+  location.hostname.toLowerCase().startsWith("browsercircus") ||
+  location.hostname.toLowerCase().startsWith("www")
+) {
+  socket = io({ path: "/leo/port-4210/socket.io" });
+} else {
+  socket = io();
+}
 let mySocketId = null;
 let otherPlayers = {};
 let playerPoints = {};
